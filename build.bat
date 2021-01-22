@@ -1,0 +1,1 @@
+g++ main.cpp --output=../build/shader_descriptor.exe
