@@ -4,22 +4,46 @@
 #include <vector>
 #include <map>
 
-enum Uniform_Type
-{
-    vec3, mat4, float32
-};
 
 struct Uniform_String
 {
     std::string type;
     std::string name;
 };
+typedef void (*WriteUniformFunc)(FILE *out, const Uniform_String& u);
 
-std::map<std::string, Uniform_Type> type_map
+void write_float32(FILE *out, const Uniform_String& u)
 {
-    { "float32", float32 },
-    { "vec3", vec3 },
-    { "mat4", mat4 }   
+    fprintf(out, "glUniform1f(%s_location, %s);\n", u.name.c_str(), u.name.c_str());
+}
+
+void write_vec3(FILE *out, const Uniform_String& u)
+{
+    fprintf(out, "glUniform3fv(%s_location, 1, (float*)&%s);\n", u.name.c_str(), u.name.c_str());
+}
+
+void write_vec2(FILE *out, const Uniform_String& u)
+{
+    fprintf(out, "glUniform2fv(%s_location, 1, (float*)&%s);\n", u.name.c_str(), u.name.c_str());
+}
+
+void write_mat4(FILE *out, const Uniform_String& u)
+{
+    fprintf(out, "glUniformMatrix4fv(%s_location, 1, GL_FALSE, (float*)&%s);\n", u.name.c_str(), u.name.c_str());
+}
+
+
+std::map<std::string, std::string> type_remapper
+{
+    { "float", "float32" }
+};
+
+std::map<std::string, WriteUniformFunc> type_map
+{
+    { "float32", write_float32 },
+    { "vec3", write_vec3 },
+    { "vec2", write_vec2 },
+    { "mat4", write_mat4 }   
 };
 
 int main(int argc, char** argv)
@@ -29,6 +53,7 @@ int main(int argc, char** argv)
     {
         auto file = fopen(argv[i], "r");
         char line[1024];
+        int line_count = 0;
         while (fgets(line, 1024, file) != NULL)
         {
             const char uniform_text[] = "uniform ";
@@ -36,6 +61,7 @@ int main(int argc, char** argv)
             // printf("%d: %s", strstr(line, uniform_text) - line, line);
             if (strstr(line, uniform_text) == line)
             {
+                line_count++;
                 // get the type
                 char *type_start = line + sizeof(uniform_text) - 1;
                 char *type_end = strchr(type_start, ' ');
@@ -46,7 +72,22 @@ int main(int argc, char** argv)
                 char *name_end = strchr(name_start, ';');
                 *name_end = '\0';
 
-                uniforms.push_back({ {type_start}, {name_start} });
+                std::string type = {type_start};
+                auto remapped = type_remapper.find(type);
+
+                if (remapped != type_remapper.end())
+                {
+                    type = (*remapped).second;
+                }
+
+                if (type_map.find(type) == type_map.end())
+                {
+                    fprintf(stderr, "shd Error: Unrecognized type: \"%s\" in file %s, line %d.\n", 
+                        type.c_str(), argv[i], line_count);
+                    exit(-1);
+                }
+
+                uniforms.push_back({ type, {name_start} });
             }
         }
         fclose(file);
@@ -90,21 +131,7 @@ int main(int argc, char** argv)
         fprintf(out, "    GLint %s_location;\n", u.name.c_str());
         fprintf(out, "    inline void %s(glm::%s %s)\n    {\n        ", u.name.c_str(), u.type.c_str(), u.name.c_str());
 
-        switch (type_map[u.type])
-        {
-        case vec3:
-            fprintf(out, "glUniform3fv(%s_location, 1, (float*)&%s);\n", u.name.c_str(), u.name.c_str());
-            break;
-        case mat4:
-            fprintf(out, "glUniformMatrix4fv(%s_location, 1, GL_FALSE, (float*)&%s);\n", u.name.c_str(), u.name.c_str());
-            break;
-        case float32:
-            fprintf(out, "glUniform1f(%s_location, %s);\n", u.name.c_str(), u.name.c_str());
-            break;
-        default:
-            printf("Unknown type: %s", u.type.c_str());
-            break;
-        }
+        type_map[u.type](out, u);
 
         fputs("    }\n", out);
     }
