@@ -1,1 +1,1 @@
-g++ main.cpp --output=../build/shader_descriptor.exe
+g++ main.cpp -std=c++17 --output=../build/shader_descriptor.exe
