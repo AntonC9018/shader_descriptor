@@ -7,8 +7,8 @@ struct Thing
     glm::vec2 foo;
     glm::mat4 bar;
 };
-
-struct Example_Program {
+struct Example_Program
+{
     GLuint id;
     inline void use()
     {
