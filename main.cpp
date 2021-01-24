@@ -185,21 +185,29 @@ Uniform_String parse_as_declaration(char* buffer, Parse_Info parse_info)
     return result;
 }
 
-int main(int argc, char** argv)
+struct Iteration_Option
+{
+    const char** input_files;
+    int input_file_count;
+    bool append_to_output;
+    const char* output_file;
+    const char* output_struct_name;
+    const char* uniform_buffer_file;
+};
+
+struct Options
+{
+    int spaces_per_tab;
+    std::vector<Iteration_Option> iteration_options;
+};
+
+void run_iteration(Iteration_Option iteration_option)
 {
     std::vector<Uniform_String> uniforms;
 
-    auto output_struct_name = sb_create(64);
-    sb_cat_until(output_struct_name, argv[1], '.');
-    sb_null_terminate(output_struct_name);
-    if (output_struct_name.data[0] >= 'a' && output_struct_name.data[0] <= 'z')
+    for (int i = 0; i < iteration_option.input_file_count; i++)
     {
-        output_struct_name.data[0] += 'A' - 'a';
-    }
-
-    for (int i = 2; i < argc; i++)
-    {
-        Parse_Info parse_info { argv[i], 0 };
+        Parse_Info parse_info { iteration_option.input_files[i], 0 };
         auto file = fopen(parse_info.file, "r");
         char line[1024];
         while (fgets(line, 1024, file) != NULL)
@@ -283,7 +291,7 @@ int main(int argc, char** argv)
     }
 
     Writer writer;
-    writer.stream = fopen(argv[1], "w+");
+    writer.stream = fopen(iteration_option.output_file, "w+");
     writer.current_indentation_level = 0;
     Writer *wr = &writer;
     
@@ -315,7 +323,7 @@ int main(int argc, char** argv)
     //     }
     // } 
 
-    wr_format_line(wr, "struct %s_Program", output_struct_name.data);
+    wr_format_line(wr, "struct %s_Program", iteration_option.output_struct_name);
     wr_start_struct(wr);
     wr_line(wr, "GLuint id;");
     wr_line(wr, "inline void use()");
@@ -372,4 +380,36 @@ int main(int argc, char** argv)
     wr_end_struct(wr);
 
     fclose(writer.stream);
+}
+
+void run(Options* options)
+{
+    spaces_per_indentation = options->spaces_per_tab;
+    for (auto iteration_option : options->iteration_options)
+    {
+        run_iteration(iteration_option);
+    } 
+}
+
+int main(int argc, const char** argv)
+{
+    Iteration_Option option;
+    option.input_files = &argv[2];
+    option.input_file_count = argc - 2;
+    option.append_to_output = false;
+    option.output_file = argv[1];
+
+    auto output_struct_name = sb_create(64);
+    sb_cat_until(output_struct_name, option.output_file, '.');
+    if (output_struct_name.data[0] >= 'a' && output_struct_name.data[0] <= 'z')
+    {
+        output_struct_name.data[0] += 'A' - 'a';
+    }
+
+    option.output_struct_name = sb_build(output_struct_name);
+    option.uniform_buffer_file = argv[1];
+
+    Options options = { 4, { option } };
+
+    run(&options);
 }

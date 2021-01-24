@@ -11,7 +11,7 @@ inline const char* string_copy_with_malloc(const char* src)
     return buff;
 }
 
-// Increments the pointer until the first occurence of a character, which isn't whitespace
+// Increments the pointer until the first occurence of a character which isn't whitespace
 inline char* trim_front(char* str, char ch = ' ')
 {
     while (*str == ch)

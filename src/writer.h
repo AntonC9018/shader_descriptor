@@ -1,7 +1,7 @@
 #pragma once
 #include <stdio.h>
 
-const int spaces_per_indentation = 4;
+static int spaces_per_indentation = 4;
 
 struct Writer
 {
