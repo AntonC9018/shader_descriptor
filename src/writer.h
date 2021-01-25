@@ -1,12 +1,11 @@
 #pragma once
 #include <stdio.h>
 
-static int spaces_per_indentation = 4;
-
 struct Writer
 {
     FILE *stream;
     int current_indentation_level;
+    int spaces_per_tab = 4;
 };
 
 inline void wr_indent(Writer* writer)
@@ -23,7 +22,7 @@ inline void wr_print_indent(Writer* writer)
 {
     if (writer->current_indentation_level)
     {
-        fprintf(writer->stream, "%*c", writer->current_indentation_level * spaces_per_indentation, ' ');
+        fprintf(writer->stream, "%*c", writer->current_indentation_level * writer->spaces_per_tab, ' ');
     }
 }
 
