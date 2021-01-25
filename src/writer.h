@@ -74,6 +74,11 @@ inline void wr_end_struct(Writer* writer)
     wr_line(writer, "};");
 }
 
+inline void wr_flush(Writer* writer)
+{
+    fflush(writer->stream);
+}
+
 #define wr_format(writer, string, ...) fprintf((writer)->stream, string, __VA_ARGS__)
 
 #define wr_format_line(writer, string, ...)      \

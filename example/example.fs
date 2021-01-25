@@ -10,8 +10,8 @@ struct Thing
 layout (std140) uniform Stuff
 {
     float fuu;
-    vec3 bag;
     vec4 fee;
+    vec3 bag;
     mat4 too;    
 };
 

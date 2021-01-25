@@ -250,7 +250,9 @@ struct Options
 struct Uniform_Block
 {
     std::vector<uint32_t> offsets;
+    std::vector<uint32_t> pad_bytes;
     uint32_t total_size;
+    std::vector<Uniform> members;
 };
 
 void run_iteration(Iteration_Option iteration_option)
@@ -276,7 +278,6 @@ void run_iteration(Iteration_Option iteration_option)
             else if (strstr(buffer, "struct") == buffer)
             {
                 auto _struct = parse_as_struct(buffer, file, buffer + sizeof("struct"), parse_info);
-                printf("%s has length %d", _struct.name, strlen(_struct.name));
                 custom_types[{ _struct.name }] = std::move(_struct.members);
             }
             // TODO: uniform block layout
@@ -291,44 +292,39 @@ void run_iteration(Iteration_Option iteration_option)
                 // 3. Uniform block layouts follow this spec for data layout: 
                 //    https://www.khronos.org/registry/OpenGL/extensions/ARB/ARB_uniform_buffer_object.txt
                 //    maybe use a tool for figuring out the offsets, but the algorithm shouldn't be hard.
-                Uniform_Block block;
+                uniform_blocks[{ _struct.name }] = Uniform_Block{};
+                Uniform_Block* block = &uniform_blocks[{ _struct.name }];
 
                 uint32_t current_offset = 0;
-                uint32_t dword_fullness = 0;
+                uint32_t dword_x4_fullness = 0;
                 for (const auto& member : _struct.members)
                 {
                     auto member_size = uniform_type_map[{ member.type }].size_in_bytes;
                     // If adding the member goes over the float "socket" size,
                     // skip the remaining bytes in that unoccupied memory.
-                    // E.g. having { float, vec4 }, the offsets would be float at 0 to 1, skip 3 bytes, vec4 at 4 to 8.
-                    // E.g. { float, vec3 } would go to { 0 -> 1, 1 -> 4 } instead, since they both fit in that dword 
-                    if (member_size + dword_fullness > 4)
+                    // E.g. having { float, vec4 }, the offsets would be float at 0 to 4, skip 12 bytes, vec4 at 16 to 32.
+                    // E.g. { float, vec3 } would go to { 0 -> 4, 4 -> 16 } instead, since they both fit in that 4 * dword 
+                    if (dword_x4_fullness > 0 && (member_size + dword_x4_fullness > 16))
                     {
-                        auto skipped_bytes = 4 - dword_fullness;
+                        auto skipped_bytes = 16 - dword_x4_fullness;
+                        block->pad_bytes.push_back(skipped_bytes);
                         current_offset += skipped_bytes;
-                        dword_fullness = 0;
+                        dword_x4_fullness = 0;
                     }
-                    block.offsets.push_back(current_offset);
+                    else
+                    {
+                        block->pad_bytes.push_back(0);
+                    }
+                    
+                    block->offsets.push_back(current_offset);
                     current_offset += member_size;
-                    dword_fullness += member_size % 4;
+                    dword_x4_fullness += member_size % 16;
                 }
                 // offset to full dword for last member
-                current_offset += 4 - dword_fullness;
+                current_offset += 16 - dword_x4_fullness;
 
-                block.total_size = current_offset;
-
-                uniform_blocks[{ _struct.name }] = block;
-                custom_types[{ _struct.name }] = std::move(_struct.members);
-                
-                /* 
-                    // Getting the offset. This offset is per-program.
-                    // This should be done in set_locations() in every shader program.
-                    uint32_t block_index = glGetUniformBlockIndex(program_id, "Block_Name");   
-                    glUniformBlockBinding(program_id, block_index, binding_point);
-                */
-                
-                // Also, if a shader program is to use such an object, every such program
-                // should bind to a particular binding point. This should be done, presumably, in set_locations().
+                block->total_size = current_offset;
+                block->members = std::move(_struct.members);
             }
             
         }
@@ -361,22 +357,33 @@ void run_iteration(Iteration_Option iteration_option)
     // Print uniform block layout types
     for (auto const& [type, block] : uniform_blocks)
     {   
+        wr_line(wr, "#pragma pack(1)");
+        wr_format_line(wr, "struct %s", type.c_str());
+        wr_start_struct(wr);
+        // Although the padding is inserted automatically, it is arch dependent
+        // Which is why we'd better add it manually.
+        // UPDATE: pack(16) is also an option, but I'm not sure how it plays out with the opengl format.
+        uint32_t pad_count = 0;
+        for (int i = 0; i < block.members.size(); i++)
+        {
+            if (block.pad_bytes[i] > 0)
+            {
+                wr_format_line(wr, "char _padding_%d[%d];", pad_count, block.pad_bytes[i]);
+                pad_count++;
+            }
+            const auto& member = block.members[i];
+            wr_format_line(wr, "%s %s;", member.type, member.name);
+        }
+        wr_end_struct(wr);
+
         wr_format_line(wr, "struct %s_Block", type.c_str());
         wr_start_struct(wr);
         
         // Buffer id
         wr_line(wr, "GLuint id;");
+        wr_line(wr, "GLuint binding_point;");
        
         // Create method
-        /*
-            // Example code for creating the uniform buffer.
-            // Done once in create function of the buffer.
-            uint32_t ubo;
-            glGenBuffers(1, &ubo);
-            glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-            glBufferData(GL_UNIFORM_BUFFER, buffer_size, NULL, GL_STATIC_DRAW);
-            glBindBuffer(GL_UNIFORM_BUFFER, 0);
-        */
         wr_line(wr, "inline void create()");
         wr_start_block(wr);
         wr_line(wr, "glGenBuffers(1, &id);");
@@ -391,16 +398,15 @@ void run_iteration(Iteration_Option iteration_option)
         wr_end_block(wr);
 
         // Set-all method
-        wr_line(wr, "inline void data(void* data)"); 
+        wr_format_line(wr, "inline void data(%s* data)", type.c_str()); 
         wr_start_block(wr);
         wr_format_line(wr, "glBufferData(GL_UNIFORM_BUFFER, %d, data, GL_STATIC_DRAW);", block.total_size);
         wr_end_block(wr);
 
         // Member offsets
-        const auto& members = custom_types[type];
         for (int i = 0; i < block.offsets.size(); i++)
         {
-            const auto& member = members[i];
+            const auto& member = block.members[i];
             uint32_t offset = block.offsets[i];
             wr_format_line(wr, "const GLuint %s_offset = %d;", member.name, offset);
         }
@@ -408,18 +414,11 @@ void run_iteration(Iteration_Option iteration_option)
         // Setting data
         for (int i = 0; i < block.offsets.size(); i++)
         {
-            const auto& member = members[i];
+            const auto& member = block.members[i];
             uint32_t offset = block.offsets[i];
 
             wr_format_line(wr, "inline void %s(%s* %s)", member.name, member.type, member.name);
             wr_start_block(wr);
-            /*
-                // The individual offsets of block member fields will be hardcoded in the correspoding functions.
-                // assume data is received as an argument.
-                // There should be such a function for every member of the uniform buffer.
-                glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-                glBufferSubData(GL_UNIFORM_BUFFER, data_offset, data_size, &data);
-            */
             wr_format_line(wr, "glBufferSubData(GL_UNIFORM_BUFFER, %s_offset, %d, %s);", 
                 member.name, block.total_size, member.name);
             wr_end_block(wr);
@@ -442,6 +441,12 @@ void run_iteration(Iteration_Option iteration_option)
         write_location_declaration(wr, u);
     }
 
+    // Uniform blocks indices
+    for (auto const& [type, _] : uniform_blocks)
+    {
+        wr_format_line(wr, "GLint %s_block_index;", type.c_str());  
+    }
+
     // Uniform setters
     for (const auto& u : uniforms)
     {
@@ -451,13 +456,30 @@ void run_iteration(Iteration_Option iteration_option)
         wr_end_block(wr);
     }
 
+    // Uniform block setters.
+    for (auto const& [type, _] : uniform_blocks)
+    {
+        wr_format_line(wr, "inline void %s_block(%s_Block %s_block)", type.c_str(), type.c_str(), type.c_str());
+        wr_start_block(wr);
+        wr_format_line(wr, "glUniformBlockBinding(id, %s_block_index, %s_block.binding_point);", type.c_str(), type.c_str());
+        wr_end_block(wr);
+    }
+
     // Initializing locations
     wr_line(wr, "inline void query_locations()");
     wr_start_block(wr);
+
     for (const auto& u : uniforms)
     {
         write_location(wr, u);
     }
+
+    // Getting the indices for uniform blocks.
+    for (auto const& [type, _] : uniform_blocks)
+    {
+        wr_format_line(wr, "%s_block_index = glGetUniformBlockIndex(id, \"%s\");", type.c_str(), type.c_str());
+    }
+    
     wr_end_block(wr);
 
     // Setting all uniforms. The function header.
