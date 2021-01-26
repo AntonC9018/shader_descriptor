@@ -20,6 +20,7 @@ struct Uniform_Type_Info
 {
     WriteUniformFunc write_func;
     uint32_t size_in_bytes;
+    uint32_t base_alignment;
 };
 
 struct Struct
@@ -71,11 +72,11 @@ std::map<std::string, std::vector<Uniform>> custom_types;
 
 std::map<std::string, Uniform_Type_Info> uniform_type_map
 {
-    { "glm::float32", { write_float32, 4         } },
-    { "glm::vec4",    { write_vec4,    4 * 4     } },
-    { "glm::vec3",    { write_vec3,    3 * 4     } },
-    { "glm::vec2",    { write_vec2,    2 * 4     } },
-    { "glm::mat4",    { write_mat4,    4 * 4 * 4 } }  
+    { "glm::float32", { write_float32, 4,         4 } },
+    { "glm::vec4",    { write_vec4,    4 * 4,     16 } },
+    { "glm::vec3",    { write_vec3,    3 * 4,     16 } },
+    { "glm::vec2",    { write_vec2,    2 * 4,     8 } },
+    { "glm::mat4",    { write_mat4,    4 * 4 * 4, 16 } }  
 };
 
 std::map<std::string, Uniform_Block> uniform_blocks;
@@ -221,7 +222,8 @@ void write_custom_type_declarations(Writer* wr)
 
 void write_uniform_buffer_declaration(Writer* wr, const std::string& type, const Uniform_Block& block)
 {
-    wr_line(wr, "#pragma pack(1)");
+    // wr_line(wr, "#pragma push");
+    // wr_line(wr, "#pragma pack(1)");
     wr_format_line(wr, "struct %s", type.c_str());
     wr_start_struct(wr);
     // Although the padding is inserted automatically, it is arch dependent
@@ -232,13 +234,14 @@ void write_uniform_buffer_declaration(Writer* wr, const std::string& type, const
     {
         if (block.pad_bytes[i] > 0)
         {
-            wr_format_line(wr, "char _padding_%d[%d];", pad_count, block.pad_bytes[i]);
+            wr_format_line(wr, "char _padding_%u[%u];", pad_count, block.pad_bytes[i]);
             pad_count++;
         }
         const auto& member = block.members[i];
         wr_format_line(wr, "%s %s;", member.type, member.name);
     }
     wr_end_struct(wr);
+    // wr_line(wr, "#pragma pop");
 
     wr_format_line(wr, "struct %s_Block", type.c_str());
     wr_start_struct(wr);
@@ -248,11 +251,14 @@ void write_uniform_buffer_declaration(Writer* wr, const std::string& type, const
     wr_line(wr, "GLuint binding_point;");
     
     // Create method
-    wr_line(wr, "inline void create()");
+    wr_line(wr, "inline void create(GLuint binding_point)");
     wr_start_block(wr);
     wr_line(wr, "glGenBuffers(1, &id);");
     wr_line(wr, "glBindBuffer(GL_UNIFORM_BUFFER, id);");
-    wr_format_line(wr, "glBufferData(GL_UNIFORM_BUFFER, %d, NULL, GL_STATIC_DRAW);", block.total_size);
+    wr_format_line(wr, "glBufferData(GL_UNIFORM_BUFFER, %u, NULL, GL_STATIC_DRAW);", block.total_size);
+    wr_line(wr, "glBindBuffer(GL_UNIFORM_BUFFER, 0);");
+    wr_line(wr, "this->binding_point = binding_point;");
+    wr_line(wr, "glBindBufferBase(GL_UNIFORM_BUFFER, binding_point, id);");
     wr_end_block(wr);
 
     // Bind method
@@ -264,7 +270,7 @@ void write_uniform_buffer_declaration(Writer* wr, const std::string& type, const
     // Set-all method
     wr_format_line(wr, "inline void data(%s* data)", type.c_str()); 
     wr_start_block(wr);
-    wr_format_line(wr, "glBufferData(GL_UNIFORM_BUFFER, %d, data, GL_STATIC_DRAW);", block.total_size);
+    wr_format_line(wr, "glBufferData(GL_UNIFORM_BUFFER, %u, data, GL_STATIC_DRAW);", block.total_size);
     wr_end_block(wr);
 
     // Member offsets
@@ -272,7 +278,7 @@ void write_uniform_buffer_declaration(Writer* wr, const std::string& type, const
     {
         const auto& member = block.members[i];
         uint32_t offset = block.offsets[i];
-        wr_format_line(wr, "const GLuint %s_offset = %d;", member.name, offset);
+        wr_format_line(wr, "const GLuint %s_offset = %u;", member.name, offset);
     }
 
     // Setting data
@@ -281,10 +287,10 @@ void write_uniform_buffer_declaration(Writer* wr, const std::string& type, const
         const auto& member = block.members[i];
         uint32_t offset = block.offsets[i];
 
-        wr_format_line(wr, "inline void %s(%s* %s)", member.name, member.type, member.name);
+        wr_format_line(wr, "inline void %s(%s %s)", member.name, member.type, member.name);
         wr_start_block(wr);
-        wr_format_line(wr, "glBufferSubData(GL_UNIFORM_BUFFER, %s_offset, %d, %s);", 
-            member.name, block.total_size, member.name);
+        wr_format_line(wr, "glBufferSubData(GL_UNIFORM_BUFFER, %s_offset, %u, glm::value_ptr(%s));", 
+            member.name, uniform_type_map[{ member.type }].size_in_bytes, member.name);
         wr_end_block(wr);
     }
 
@@ -409,20 +415,23 @@ void run_iteration(Options* options, Iteration_Option* iteration_option)
                 Uniform_Block* block = &uniform_blocks[{ _struct.name }];
 
                 uint32_t current_offset = 0;
-                uint32_t dword_x4_fullness = 0;
                 for (const auto& member : _struct.members)
                 {
-                    auto member_size = uniform_type_map[{ member.type }].size_in_bytes;
-                    // If adding the member goes over the float "socket" size,
-                    // skip the remaining bytes in that unoccupied memory.
-                    // E.g. having { float, vec4 }, the offsets would be float at 0 to 4, skip 12 bytes, vec4 at 16 to 32.
-                    // E.g. { float, vec3 } would go to { 0 -> 4, 4 -> 16 } instead, since they both fit in that 4 * dword 
-                    if (dword_x4_fullness > 0 && (member_size + dword_x4_fullness > 16))
+                    const auto& member_type_info = uniform_type_map[{ member.type }];
+                    auto member_size = member_type_info.size_in_bytes;
+                    auto member_alignment = member_type_info.base_alignment;
+                    auto current_alignment = current_offset % member_alignment;
+
+                    // if the member is not properly aligned, do so
+                    // E.g. the alignment of a float is N, so it will always fit
+                    // The alignment of a vec2 is 2N, which means that if a vec2 follows a float,
+                    // the float would be in the first 4 bytes, the next 4 bytes will be skipped 
+                    // and then would go the vec2.
+                    if (current_alignment != 0)
                     {
-                        auto skipped_bytes = 16 - dword_x4_fullness;
+                        auto skipped_bytes = member_alignment - current_alignment;
                         block->pad_bytes.push_back(skipped_bytes);
                         current_offset += skipped_bytes;
-                        dword_x4_fullness = 0;
                     }
                     else
                     {
@@ -431,10 +440,7 @@ void run_iteration(Options* options, Iteration_Option* iteration_option)
                     
                     block->offsets.push_back(current_offset);
                     current_offset += member_size;
-                    dword_x4_fullness += member_size % 16;
                 }
-                // offset to full dword for last member
-                current_offset += 16 - dword_x4_fullness;
 
                 block->total_size = current_offset;
                 block->members = std::move(_struct.members);
@@ -551,6 +557,7 @@ void run(Options* options)
 
     writer.stream = fopen(options->uniform_buffer_file, "w+");
     write_header(&writer);
+    wr_line(&writer, "#include <glm/gtc/type_ptr.hpp>");
     write_uniform_buffer_declarations(&writer);
 
     writer.stream = fopen(options->custom_types_file, "w+");
