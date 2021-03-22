@@ -229,16 +229,18 @@ void write_uniform_buffer_declaration(Writer* wr, const std::string& type, const
     // Although the padding is inserted automatically, it is arch dependent
     // Which is why we'd better add it manually.
     // UPDATE: pack(16) is also an option, but I'm not sure how it plays out with the opengl format.
-    uint32_t pad_count = 0;
-    for (int i = 0; i < block.members.size(); i++)
     {
-        if (block.pad_bytes[i] > 0)
+        uint32_t pad_count = 0;
+        for (int i = 0; i < block.members.size(); i++)
         {
-            wr_format_line(wr, "char _padding_%u[%u];", pad_count, block.pad_bytes[i]);
-            pad_count++;
+            if (block.pad_bytes[i] > 0)
+            {
+                wr_format_line(wr, "char _padding_%u[%u];", pad_count, block.pad_bytes[i]);
+                pad_count++;
+            }
+            const auto& member = block.members[i];
+            wr_format_line(wr, "%s %s;", member.type, member.name);
         }
-        const auto& member = block.members[i];
-        wr_format_line(wr, "%s %s;", member.type, member.name);
     }
     wr_end_struct(wr);
     // wr_line(wr, "#pragma pop");
