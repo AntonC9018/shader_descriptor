@@ -356,7 +356,7 @@ Struct parse_as_struct(char* buffer, FILE* file, char* struct_name_start, Parse_
         result.members.push_back(parse_as_declaration(trim_front(buffer), parse_info)); 
     }
 
-    return std::move(result);
+    return result;
 }
 
 struct Iteration_Option
