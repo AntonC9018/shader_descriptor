@@ -578,7 +578,7 @@ int main(int argc, char** argv)
         // -types_output=required/null
         // -uniform_buffer_output=required/null
         // [OUTPUT;[INPUT;]]
-        fputs("No output-input group provided. Usage: shd <custom_types_output_file> <uniform_buffer_output_file> <ouput_file>;[<input_file>+]\nSeparate the input files by ;", stderr);
+        fputs("No output-input group provided. Usage: shd <custom_types_output_file> <uniform_buffer_output_file> [ <ouput_file>;[<input_file>+]+ ]\nSeparate the input files by ;", stderr);
         exit(-1);
     }
 
