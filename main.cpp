@@ -399,7 +399,7 @@ void run_iteration(Options* options, Iteration_Option* iteration_option)
                 // If not, notify the user that different structs with same name are not allowed.
                 custom_types[{ _struct.name }] = std::move(_struct.members);
             }
-            // TODO: uniform block layout
+            // Uniform block layout
             else if (strstr(buffer, "layout (std140) uniform") == buffer)
             {
                 // 1. Process exactly as a struct
@@ -519,17 +519,20 @@ void run_iteration(Options* options, Iteration_Option* iteration_option)
     wr_print_indent(wr);
     wr_puts(wr, "inline void uniforms(");
 
-    int i = 0;
-    int num_uniforms = uniforms.size();
-    for (const auto& [_, u] : uniforms)
     {
-        wr_format(wr, "%s %s_v", u.type, u.name);
-        i++;
-        if (i < num_uniforms)
+        int i = 0;
+        int num_uniforms = uniforms.size();
+        for (const auto& [_, u] : uniforms)
         {
-            wr_puts(wr, ", ");
+            wr_format(wr, "%s %s_v", u.type, u.name);
+            i++;
+            if (i < num_uniforms)
+            {
+                wr_puts(wr, ", ");
+            }
         }
     }
+
     wr_puts(wr, ")\n");
     wr_start_block(wr);
 
@@ -573,7 +576,7 @@ int main(int argc, char** argv)
         // -types_output=required/null
         // -uniform_buffer_output=required/null
         // [OUTPUT;[INPUT;]]
-        fputs("No output-input group provided. Usage: shd <custom_types_output_file> <uniform_buffer_output_file> [<ouput_file>;[<input_file>;]]", stderr);
+        fputs("No output-input group provided. Usage: shd <custom_types_output_file> <uniform_buffer_output_file> <ouput_file>;[<input_file>+]\nSeparate the input files by ;", stderr);
         exit(-1);
     }
 
