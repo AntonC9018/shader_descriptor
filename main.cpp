@@ -154,7 +154,7 @@ inline void write_header(Writer* writer)
 }
 
 // Writes the code for setting the specified uniform to the specified stream.
-// TODO: wrap once and pass into thin function a vector of already wrapped things
+// TODO: wrap once and pass into this function a vector of already wrapped things
 inline void write_uniform(Writer* writer, const Uniform& u)
 {
     if (custom_types.find(u.type) != custom_types.end())
