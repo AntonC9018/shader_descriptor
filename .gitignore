@@ -1,5 +1,5 @@
 _test.bat
 test
-build/
-bin/
-bin-int/
+/build/
+/bin/
+/bin-int/
