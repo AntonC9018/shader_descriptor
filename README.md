@@ -16,5 +16,4 @@ premake5 gmake
 make -C build config=release
 ```
 
-The executable is written to `bin/Release/shader_descriptor`, keeping all build
-output inside this repository.
+The executable is written to `bin/Release/shader_descriptor`.
