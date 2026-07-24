@@ -12,7 +12,7 @@ Install [Premake 5](https://premake.github.io/) and ensure `premake5` is on
 `PATH`. Generate GNU Makefiles and build with GCC:
 
 ```sh
-premake5 gmake2
+premake5 gmake
 make -C build config=release
 ```
 
