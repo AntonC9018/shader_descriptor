@@ -578,8 +578,8 @@ int main(int argc, char** argv)
         // -spaces_per_tab=4
         // -types_output=required/null
         // -uniform_buffer_output=required/null
-        // [OUTPUT;[INPUT;]]
-        fputs("No output-input group provided. Usage: shd <custom_types_output_file> <uniform_buffer_output_file> [ <ouput_file>;[<input_file>+]+ ]\nSeparate the input files by ;", stderr);
+        // --output OUTPUT INPUT [INPUT ...]
+        fputs("No output-input group provided. Usage: shd <custom_types_output_file> <uniform_buffer_output_file> --output <output_file> <input_file> [input_file ...]", stderr);
         exit(-1);
     }
 
@@ -587,20 +587,50 @@ int main(int argc, char** argv)
 
     for (int i = 3; i < argc; i++)
     {
-        char* output_file = strtok(argv[i], ";");
-
+        const char* output_file;
         std::vector<const char*> input_files;
-        char* input_file = strtok(NULL, ";");
-        if (input_file == NULL)
+
+        if (strcmp(argv[i], "--output") == 0)
         {
-            fprintf(stderr, "No input file provided for the output file %s", output_file);
+            if (++i >= argc)
+            {
+                fputs("No output file provided after --output", stderr);
+                exit(-1);
+            }
+            output_file = argv[i];
+            while (++i < argc && strcmp(argv[i], "--output") != 0)
+            {
+                input_files.push_back(argv[i]);
+            }
+            i--;
+        }
+        else
+        {
+            output_file = strtok(argv[i], ";,|");
+            char* input_file = strtok(NULL, ";,|");
+            while (input_file != NULL)
+            {
+                input_files.push_back(input_file);
+                input_file = strtok(NULL, ";,|");
+            }
+        }
+
+        bool invalid_input = input_files.empty();
+        for (const char* input_file : input_files)
+        {
+            if (input_file == nullptr || *input_file == '\0')
+            {
+                invalid_input = true;
+                break;
+            }
+        }
+
+        if (output_file == nullptr || *output_file == '\0' ||
+            strcmp(output_file, "--output") == 0 || invalid_input)
+        {
+            fputs("Each output group requires a non-empty output and input file", stderr);
             exit(-1);
         }
-        while(input_file != NULL)
-        {
-            input_files.push_back(input_file);
-            input_file = strtok(NULL, ";");
-        };
 
         Iteration_Option option;
         option.input_files = std::move(input_files);
