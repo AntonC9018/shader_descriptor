@@ -3,6 +3,7 @@
 #include <string.h>
 #include <vector>
 #include <map>
+#include <cstdint>
 #include "src/string_builder.h"
 #include "src/string_util.h"
 #include "src/writer.h"
